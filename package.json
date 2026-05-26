@@ -7,6 +7,7 @@
   "scripts": {
     "launch": "node launch-browser.mjs",
     "add-emas": "node scripts/add-emas.mjs",
+    "insert-emas": "node scripts/insert-emas.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
