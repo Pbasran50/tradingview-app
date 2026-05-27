@@ -1,0 +1,66 @@
+//@version=5
+// High Tight Flag (HTF) Detector
+// Based on William O'Neil / IBD criteria:
+//   Pole:  Stock advances 100%+ (doubles) in 4–8 weeks
+//   Flag:  Tight consolidation of 10–25% over 3–5 weeks
+//   Buy:   Breakout above flag high on heavy volume
+// Rarest and most powerful of all chart patterns per O'Neil
+indicator("High Tight Flag", overlay=true, max_bars_back=500)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+poleBars      = input.int(35,   "Pole Lookback (bars)",     minval=15, maxval=60)
+poleGainMin   = input.float(0.90, "Pole Min Gain %",        minval=0.50, maxval=2.0, step=0.05)
+flagBars      = input.int(20,   "Flag Length (bars)",        minval=5,  maxval=40)
+flagDepthMax  = input.float(0.25, "Flag Max Depth %",        minval=0.05, maxval=0.40, step=0.01)
+volMult       = input.float(1.4,  "Breakout Volume Mult",   minval=1.0, maxval=4.0,   step=0.1)
+
+// ── Pole: prior big advance ───────────────────────────────────────────────────
+poleStart     = ta.lowest(low, poleBars + flagBars)[flagBars]   // low before flag
+polePeak      = ta.highest(high, poleBars + flagBars)[flagBars] // high of pole
+poleGain      = (polePeak - poleStart) / poleStart
+isPole        = poleGain >= poleGainMin
+
+// ── Flag: tight consolidation after the pole ──────────────────────────────────
+flagHigh      = ta.highest(high, flagBars)
+flagLow       = ta.lowest(low,   flagBars)
+flagDepth     = (flagHigh - flagLow) / flagHigh
+isFlag        = flagDepth <= flagDepthMax
+
+// Flag should be in upper portion — low above midpoint of pole
+flagAboveMid  = flagLow >= (poleStart + (polePeak - poleStart) * 0.60)
+
+avgVol        = ta.sma(volume, 50)
+
+// ── Breakout ──────────────────────────────────────────────────────────────────
+isBreakout    = isPole and isFlag and flagAboveMid
+               and close > flagHigh and close[1] <= flagHigh[1]
+               and volume >= avgVol * volMult
+
+// Setup forming (not yet broken out)
+isForming     = isPole and isFlag and flagAboveMid and not isBreakout
+
+// ── Plots ─────────────────────────────────────────────────────────────────────
+plotshape(isBreakout, title="HTF Breakout",
+  style=shape.flag, location=location.belowbar,
+  color=color.new(color.orange, 0), size=size.large)
+
+bgcolor(isBreakout ? color.new(color.orange, 80) : na,
+  title="HTF Breakout Highlight")
+
+plotshape(isForming and barstate.islast, title="HTF Forming",
+  style=shape.circle, location=location.abovebar,
+  color=color.new(color.yellow, 20), size=size.small)
+
+// Info label on breakout
+if isBreakout
+    label.new(bar_index, low * 0.99,
+      "HIGH TIGHT FLAG\n+" + str.tostring(math.round(poleGain * 100, 1)) + "% pole",
+      style=label.style_label_up, color=color.orange,
+      textcolor=color.white, size=size.small)
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+alertcondition(isBreakout, title="High Tight Flag Breakout",
+  message="High Tight Flag breakout on {{ticker}} — Close: {{close}}")
+
+alertcondition(isForming and barstate.islastconfirmedhistory, title="HTF Setup Forming",
+  message="High Tight Flag setup forming on {{ticker}}")

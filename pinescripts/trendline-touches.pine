@@ -1,0 +1,82 @@
+//@version=5
+// 3-Touch Trendline Highlighter
+// Detects pivot points and highlights bars where price has tested
+// the same trendline 3+ times (support or resistance).
+// A 3rd touch of a trendline confirms its validity — breakout/breakdown
+// from a confirmed trendline is a high-probability signal.
+indicator("3-Touch Trendline", overlay=true, max_bars_back=500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+pivotLen      = input.int(5,    "Pivot Strength (bars each side)", minval=2, maxval=15)
+lookback      = input.int(100,  "Trendline Lookback (bars)",       minval=20, maxval=300)
+tolerance     = input.float(0.015, "Touch Tolerance %",            minval=0.005, maxval=0.05, step=0.005)
+showPivots    = input.bool(true,   "Show Pivot Points")
+showBreakout  = input.bool(true,   "Show Trendline Breaks")
+
+// ── Pivot detection ───────────────────────────────────────────────────────────
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low,   pivotLen, pivotLen)
+
+// ── Count how many prior pivot highs are near the current high ────────────────
+// (simplified: count pivot highs within tolerance band of current high)
+nearbyHighs = 0
+nearbyLows  = 0
+
+for i = pivotLen to lookback
+    if not na(ph[i])
+        if math.abs(ph[i] - high) / high <= tolerance
+            nearbyHighs += 1
+    if not na(pl[i])
+        if math.abs(pl[i] - low) / low <= tolerance
+            nearbyLows += 1
+
+// 3+ touches = confirmed resistance / support level
+confirmedResistance = nearbyHighs >= 2  // current + 2 prior = 3 touches
+confirmedSupport    = nearbyLows  >= 2
+
+// ── Breakout/breakdown from confirmed level ───────────────────────────────────
+resistanceBreak = showBreakout and confirmedResistance[1]
+                 and close > high[1] * (1 + tolerance)
+                 and close[1] <= high[2] * (1 + tolerance)
+
+supportBreak    = showBreakout and confirmedSupport[1]
+                 and close < low[1] * (1 - tolerance)
+                 and close[1] >= low[2] * (1 - tolerance)
+
+// ── Plots ─────────────────────────────────────────────────────────────────────
+// Pivot points
+plotshape(showPivots and not na(ph), title="Pivot High",
+  style=shape.triangledown, location=location.abovebar,
+  color=color.new(color.red, 40), size=size.tiny, offset=-pivotLen)
+
+plotshape(showPivots and not na(pl), title="Pivot Low",
+  style=shape.triangleup, location=location.belowbar,
+  color=color.new(color.green, 40), size=size.tiny, offset=-pivotLen)
+
+// Confirmed 3-touch levels
+plotshape(confirmedResistance, title="3-Touch Resistance",
+  style=shape.square, location=location.abovebar,
+  color=color.new(color.red, 0), size=size.tiny)
+
+plotshape(confirmedSupport, title="3-Touch Support",
+  style=shape.square, location=location.belowbar,
+  color=color.new(color.green, 0), size=size.tiny)
+
+// Breakout / breakdown signals
+plotshape(resistanceBreak, title="Resistance Breakout",
+  style=shape.triangleup, location=location.belowbar,
+  color=color.new(color.lime, 0), size=size.normal)
+
+plotshape(supportBreak, title="Support Breakdown",
+  style=shape.triangledown, location=location.abovebar,
+  color=color.new(color.red, 0), size=size.normal)
+
+bgcolor(resistanceBreak ? color.new(color.lime, 80) : na, title="Breakout Highlight")
+bgcolor(supportBreak    ? color.new(color.red,  85) : na, title="Breakdown Highlight")
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+alertcondition(resistanceBreak, title="3-Touch Resistance Breakout",
+  message="Breakout above 3-touch resistance on {{ticker}} — Close: {{close}}")
+
+alertcondition(supportBreak, title="3-Touch Support Breakdown",
+  message="Breakdown below 3-touch support on {{ticker}} — Close: {{close}}")

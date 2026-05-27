@@ -1,0 +1,54 @@
+//@version=5
+// Cup & Handle Detector
+// Based on William O'Neil / IBD criteria:
+//   Cup:    U-shaped base, 7–65 weeks, depth 12–35%, rounded bottom
+//   Handle: 1–3 weeks, pullback ≤ 12%, forms in upper half of cup
+//   Buy:    Close above handle high on above-average volume
+indicator("Cup & Handle Detector", overlay=true, max_bars_back=500)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+cupBars      = input.int(50,   "Cup Length (bars)",      minval=15, maxval=200)
+handleBars   = input.int(15,   "Handle Length (bars)",   minval=5,  maxval=40)
+cupDepthMin  = input.float(0.12, "Cup Min Depth %",      minval=0.05, maxval=0.5,  step=0.01)
+cupDepthMax  = input.float(0.35, "Cup Max Depth %",      minval=0.10, maxval=0.60, step=0.01)
+handleDepth  = input.float(0.12, "Handle Max Depth %",   minval=0.03, maxval=0.25, step=0.01)
+volMult      = input.float(1.5,  "Breakout Volume Mult", minval=1.0, maxval=4.0,   step=0.1)
+
+// ── Calculations ─────────────────────────────────────────────────────────────
+cupHigh   = ta.highest(high,  cupBars)          // left/right rim of cup
+cupLow    = ta.lowest(low,    cupBars)           // bottom of cup
+depth     = (cupHigh - cupLow) / cupHigh         // cup depth as %
+
+handleHigh = ta.highest(high, handleBars)
+handleLow  = ta.lowest(low,   handleBars)
+hDepth     = (handleHigh - handleLow) / handleHigh
+
+avgVol     = ta.sma(volume, 50)
+isCupShape = depth >= cupDepthMin and depth <= cupDepthMax
+
+// Handle must form in upper half of cup
+handleInUpperHalf = handleLow >= (cupLow + (cupHigh - cupLow) * 0.5)
+
+// Breakout: close above the handle high on volume surge
+isBreakout = close > handleHigh and close[1] <= handleHigh[1]
+            and isCupShape and hDepth <= handleDepth
+            and handleInUpperHalf
+            and volume >= avgVol * volMult
+
+// ── Plots ────────────────────────────────────────────────────────────────────
+plotshape(isBreakout, title="Cup & Handle Breakout",
+  style=shape.triangleup, location=location.belowbar,
+  color=color.new(color.green, 0), size=size.normal)
+
+bgcolor(isBreakout ? color.new(color.green, 85) : na,
+  title="Breakout Bar Highlight")
+
+// Potential setup forming (no breakout yet)
+isForming = isCupShape and hDepth <= handleDepth and handleInUpperHalf and not isBreakout
+plotshape(isForming and barstate.islast, title="Setup Forming",
+  style=shape.circle, location=location.abovebar,
+  color=color.new(color.yellow, 30), size=size.small)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+alertcondition(isBreakout, title="Cup & Handle Breakout",
+  message="Cup & Handle breakout on {{ticker}} — Close: {{close}}, Volume surge detected")

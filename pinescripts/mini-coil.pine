@@ -1,0 +1,69 @@
+//@version=5
+// Mini Coil / Tight Consolidation Detector
+// Based on Mark Minervini's Specific Entry Point Analysis (SEPA):
+//   - Price contracts into an increasingly tight range (coil / spring)
+//   - Volatility shrinks over 3–6 bars (daily or weekly)
+//   - Often appears within a larger base (stage 2 uptrend)
+//   - Buy: breakout from tight range on expanding volume
+indicator("Mini Coil (Tight Consolidation)", overlay=true, max_bars_back=300)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+coilBars      = input.int(6,    "Coil Lookback (bars)",      minval=3, maxval=20)
+coilWidthMax  = input.float(0.06, "Max Coil Width % (price)", minval=0.01, maxval=0.20, step=0.005)
+trendBars     = input.int(50,   "Uptrend Lookback (bars)",   minval=20, maxval=200)
+volMult       = input.float(1.3,  "Breakout Volume Mult",    minval=1.0, maxval=3.0, step=0.1)
+showZone      = input.bool(true,  "Highlight Coil Zone")
+
+// ── Coil detection ────────────────────────────────────────────────────────────
+coilHigh      = ta.highest(high, coilBars)
+coilLow       = ta.lowest(low,   coilBars)
+coilWidth     = (coilHigh - coilLow) / coilHigh   // width as % of price
+isTight       = coilWidth <= coilWidthMax
+
+// Shrinking volatility: each bar's range smaller than prior bars average
+barRange      = high - low
+avgRange      = ta.sma(barRange, coilBars * 2)
+isShrinking   = ta.sma(barRange, coilBars) < avgRange * 0.65
+
+// Stage 2 uptrend context: price above 50-day MA, 50-day rising
+ma50          = ta.sma(close, trendBars)
+inUptrend     = close > ma50 and ma50 > ma50[5]
+
+isCoil        = isTight and isShrinking and inUptrend
+
+// ── Breakout from coil ────────────────────────────────────────────────────────
+avgVol        = ta.sma(volume, 50)
+isBreakout    = isCoil[1] and close > coilHigh[1]
+               and close[1] <= coilHigh[2]
+               and volume >= avgVol * volMult
+
+// ── Plots ─────────────────────────────────────────────────────────────────────
+// Shade the coil zone
+coilColor = color.new(color.blue, 88)
+bgcolor(showZone and isCoil ? coilColor : na, title="Coil Zone")
+
+// Mark coil bars with a dot
+plotshape(isCoil and not isCoil[1], title="Coil Start",
+  style=shape.circle, location=location.abovebar,
+  color=color.new(color.blue, 30), size=size.tiny)
+
+// Breakout arrow
+plotshape(isBreakout, title="Coil Breakout",
+  style=shape.triangleup, location=location.belowbar,
+  color=color.new(color.aqua, 0), size=size.normal)
+
+bgcolor(isBreakout ? color.new(color.aqua, 75) : na, title="Breakout Highlight")
+
+// Label on active coil
+if isCoil and barstate.islast
+    label.new(bar_index, coilHigh * 1.001,
+      "COIL\n" + str.tostring(math.round(coilWidth * 100, 2)) + "% wide",
+      style=label.style_label_down, color=color.blue,
+      textcolor=color.white, size=size.small)
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+alertcondition(isBreakout, title="Mini Coil Breakout",
+  message="Mini Coil breakout on {{ticker}} — Close: {{close}}, tight range expanding")
+
+alertcondition(isCoil and not isCoil[1], title="Mini Coil Forming",
+  message="Mini Coil forming on {{ticker}} — watch for breakout")
