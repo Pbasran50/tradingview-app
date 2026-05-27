@@ -49,6 +49,7 @@ node scripts/add-emas.mjs 10 20 100
 | Script | What it does |
 |--------|-------------|
 | `npm run launch` | Opens Chrome with TradingView, waits for API |
+| `npm run setup-flex` | **Full setup**: daily candles, EMA 8/21/50/200, RSI, Volume + price data & news |
 | `npm run insert-emas` | Adds EMA 8/21/50 with colors, sets symbol to FLEX |
 | `npm run add-emas` | Adds EMA 9/21/50/200, accepts custom periods as args |
 | `npm run screenshot` | Saves a PNG of the chart to your Desktop |
