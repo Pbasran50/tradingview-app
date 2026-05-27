@@ -1,79 +1,97 @@
 /**
- * Launches Chromium with remote debugging on port 9222 and opens TradingView.
- * Waits until TradingViewApi is available on the page, then prints the target ID.
+ * Launches Chrome with remote debugging on port 9222 and opens TradingView.
+ * Works on Windows, Mac, and Linux.
  *
  * Usage:
  *   npm run launch                        # opens default chart
  *   node launch-browser.mjs [chart-url]   # opens a specific TradingView chart URL
  *
- * The process stays alive (keeping the browser open) until you Ctrl+C it.
- * Other scripts (e.g. scripts/add-emas.mjs) connect to the same port while
- * this process is running.
+ * Keep this running in one terminal. Run other scripts in a second terminal.
  */
 
-import { spawn, execSync } from 'child_process';
+import { spawn } from 'child_process';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 const DEBUG_PORT = 9222;
-const CHROME_BIN = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const PROFILE_DIR = join(import.meta.dirname, '.chrome-profile');
 const TV_URL = process.argv[2] || 'https://www.tradingview.com/chart/';
 
 if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
 
-// ── 1. Start Xvfb on a free display ─────────────────────────────────────────
-const DISPLAY = ':99';
-console.log(`Starting Xvfb on display ${DISPLAY} ...`);
-const xvfb = spawn('Xvfb', [DISPLAY, '-screen', '0', '1920x1080x24'], {
-  stdio: 'ignore',
-  detached: false,
-});
-xvfb.on('error', (e) => { console.error('Xvfb error:', e.message); process.exit(1); });
-await new Promise(r => setTimeout(r, 800)); // give Xvfb a moment to start
+// ── Find Chrome binary (Windows / Mac / Linux) ───────────────────────────────
+function findChrome() {
+  if (process.env.CHROME_BIN && existsSync(process.env.CHROME_BIN)) {
+    return process.env.CHROME_BIN;
+  }
+  const candidates = {
+    win32: [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      `C:\\Users\\${process.env.USERNAME}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe`,
+    ],
+    darwin: [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ],
+    linux: [
+      '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    ],
+  };
+  for (const path of candidates[process.platform] ?? []) {
+    if (existsSync(path)) return path;
+  }
+  throw new Error(
+    'Chrome not found. Install Google Chrome or set the CHROME_BIN environment variable.'
+  );
+}
 
-// ── 2. Launch Chromium ───────────────────────────────────────────────────────
+const CHROME_BIN = findChrome();
+console.log(`Using Chrome: ${CHROME_BIN}`);
+
+// ── On Linux without a display, start Xvfb ──────────────────────────────────
+let xvfb = null;
+let env = { ...process.env };
+
+if (process.platform === 'linux' && !process.env.DISPLAY) {
+  const DISPLAY = ':99';
+  console.log(`Starting Xvfb on display ${DISPLAY} ...`);
+  xvfb = spawn('Xvfb', [DISPLAY, '-screen', '0', '1920x1080x24'], { stdio: 'ignore' });
+  xvfb.on('error', (e) => { console.error('Xvfb error:', e.message); process.exit(1); });
+  env.DISPLAY = DISPLAY;
+  await new Promise(r => setTimeout(r, 800));
+}
+
+// ── Launch Chrome ────────────────────────────────────────────────────────────
 const chromeArgs = [
   `--remote-debugging-port=${DEBUG_PORT}`,
   `--user-data-dir=${PROFILE_DIR}`,
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
-  '--disable-gpu',
-  '--ignore-certificate-errors',
-  '--ignore-certificate-errors-spki-list',
-  '--allow-running-insecure-content',
-  '--disable-web-security',
   '--window-size=1920,1080',
   TV_URL,
 ];
 
-console.log(`Launching Chromium → ${TV_URL}`);
-const chrome = spawn(CHROME_BIN, chromeArgs, {
-  env: { ...process.env, DISPLAY },
-  stdio: 'ignore',
-  detached: false,
-});
+console.log(`Launching Chrome → ${TV_URL}`);
+const chrome = spawn(CHROME_BIN, chromeArgs, { env, stdio: 'ignore', detached: false });
 chrome.on('error', (e) => { console.error('Chrome error:', e.message); process.exit(1); });
-chrome.on('exit', (code) => { console.log(`Chrome exited (${code})`); xvfb.kill(); process.exit(0); });
+chrome.on('exit', (code) => { console.log(`Chrome exited (${code})`); if (xvfb) xvfb.kill(); process.exit(0); });
 
-process.on('SIGINT', () => { chrome.kill(); xvfb.kill(); process.exit(0); });
-process.on('SIGTERM', () => { chrome.kill(); xvfb.kill(); process.exit(0); });
+process.on('SIGINT',  () => { chrome.kill(); if (xvfb) xvfb.kill(); process.exit(0); });
+process.on('SIGTERM', () => { chrome.kill(); if (xvfb) xvfb.kill(); process.exit(0); });
 
-// ── 3. Wait for DevTools to be ready ────────────────────────────────────────
-async function fetchJSON(url) {
-  const res = await fetch(url);
-  return res.json();
-}
-
+// ── Wait for DevTools ────────────────────────────────────────────────────────
 async function waitForDevTools(retries = 30, delayMs = 1000) {
   for (let i = 0; i < retries; i++) {
     try {
-      const targets = await fetchJSON(`http://localhost:${DEBUG_PORT}/json/list`);
+      const res = await fetch(`http://localhost:${DEBUG_PORT}/json/list`);
+      const targets = await res.json();
       if (targets.length > 0) return targets;
-    } catch {
-      // not ready yet
-    }
+    } catch { /* not ready yet */ }
     await new Promise(r => setTimeout(r, delayMs));
     process.stdout.write('.');
   }
@@ -81,81 +99,59 @@ async function waitForDevTools(retries = 30, delayMs = 1000) {
 }
 
 process.stdout.write('Waiting for DevTools');
-const targets = await waitForDevTools();
+await waitForDevTools();
 console.log('\nDevTools ready.');
 
-// ── 4. Find the TradingView page target ─────────────────────────────────────
-function getTVTarget(targets) {
-  return targets.find(t => t.type === 'page' && t.url.includes('tradingview.com'));
-}
-
-// ── 5. Poll until TradingViewApi is present ──────────────────────────────────
-async function evalOnTarget(targetId, expression) {
-  const wsUrl = `ws://localhost:${DEBUG_PORT}/devtools/page/${targetId}`;
-  // Use Node's native WebSocket (Node 22+)
-  const ws = new WebSocket(wsUrl);
-  await new Promise((res, rej) => {
-    ws.onopen = res;
-    ws.onerror = (e) => rej(new Error(e.message || 'ws error'));
-  });
-
-  let id = 1;
-  const result = await new Promise((res, rej) => {
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.id === 1) {
-        if (msg.error) rej(new Error(JSON.stringify(msg.error)));
-        else res(msg.result?.result?.value);
-      }
-    };
-    ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
-  });
-  ws.close();
-  return result;
-}
-
-async function waitForTradingViewApi(targetId, retries = 60, delayMs = 2000) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const ready = await evalOnTarget(targetId, 'typeof TradingViewApi !== "undefined"');
-      if (ready === true) return true;
-    } catch {
-      // page still loading
-    }
-    await new Promise(r => setTimeout(r, delayMs));
-    process.stdout.write('.');
-  }
-  return false;
-}
-
-// Poll targets — the TradingView page may not appear immediately
+// ── Find TradingView target ──────────────────────────────────────────────────
 let tvTarget = null;
 for (let i = 0; i < 30; i++) {
-  const fresh = await fetchJSON(`http://localhost:${DEBUG_PORT}/json/list`);
-  tvTarget = getTVTarget(fresh);
+  const fresh = await (await fetch(`http://localhost:${DEBUG_PORT}/json/list`)).json();
+  tvTarget = fresh.find(t => t.type === 'page' && t.url.includes('tradingview.com'));
   if (tvTarget) break;
   await new Promise(r => setTimeout(r, 1000));
   process.stdout.write(',');
 }
+
 if (!tvTarget) {
-  console.error('\nNo TradingView page found in targets. Open tradingview.com manually in the browser.');
-  console.log('Available targets:', (await fetchJSON(`http://localhost:${DEBUG_PORT}/json/list`)).map(t => t.url));
+  console.error('\nNo TradingView page found.');
 } else {
   console.log(`\nTradingView page found: ${tvTarget.id}`);
-  console.log(`  URL: ${tvTarget.url}`);
-  process.stdout.write('Waiting for TradingViewApi');
-  const apiReady = await waitForTradingViewApi(tvTarget.id);
-  if (apiReady) {
-    console.log('\n\nReady! TradingViewApi is available.');
-  } else {
-    console.log('\n\nTradingViewApi not detected yet — the chart may need a login or more time to load.');
+
+  // Poll for TradingViewApi
+  async function evalOnTarget(id, expression) {
+    const ws = new WebSocket(`ws://localhost:${DEBUG_PORT}/devtools/page/${id}`);
+    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = (e) => rej(new Error(e.message)); });
+    const value = await new Promise((res, rej) => {
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.id === 1) { if (msg.error) rej(new Error(JSON.stringify(msg.error))); else res(msg.result?.result?.value); }
+      };
+      ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+    });
+    ws.close();
+    return value;
   }
-  console.log('\n─────────────────────────────────────────────────');
-  console.log(`  CHART_TARGET = '${tvTarget.id}'`);
-  console.log(`  WS_URL       = ws://localhost:${DEBUG_PORT}/devtools/page/${tvTarget.id}`);
-  console.log('─────────────────────────────────────────────────');
-  console.log('\nBrowser is running. Press Ctrl+C to exit.\n');
+
+  process.stdout.write('Waiting for TradingViewApi');
+  let apiReady = false;
+  for (let i = 0; i < 60; i++) {
+    try {
+      if (await evalOnTarget(tvTarget.id, 'typeof TradingViewApi !== "undefined"') === true) {
+        apiReady = true; break;
+      }
+    } catch { /* still loading */ }
+    await new Promise(r => setTimeout(r, 2000));
+    process.stdout.write('.');
+  }
+
+  console.log(apiReady
+    ? '\n\nReady! TradingViewApi is available.'
+    : '\n\nTradingViewApi not detected — log into TradingView and open a chart, then run your scripts.'
+  );
+  console.log('\n' + '─'.repeat(50));
+  console.log(`  Target: ${tvTarget.id}`);
+  console.log('─'.repeat(50));
+  console.log('\nKeep this running. Press Ctrl+C to exit.\n');
 }
 
-// Keep process alive
 await new Promise(() => {});
