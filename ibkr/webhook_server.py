@@ -1,6 +1,11 @@
 """
 FastAPI webhook server — receives TradingView alerts and routes them to IBKR.
 
+Connects to IBKR ONCE at startup (inside the lifespan handler, so it shares
+uvicorn's event loop) and reuses that single connection for every alert.
+Creating a fresh ib_insync connection per-request causes
+"attached to a different loop" RuntimeErrors.
+
 Start:
     python webhook_server.py
 
@@ -10,34 +15,42 @@ TradingView alert URL:
 Set a secret via WEBHOOK_SECRET env var to validate requests.
 """
 
-import asyncio
 import hmac
 import hashlib
 import os
 import sys
+from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request, status
+from ib_insync import IB
+
+from broker import Broker, IBKR_HOST, IBKR_PORT, IBKR_CLIENT_ID
+from models import AlertPayload
 
 # ib_insync's socket connection code requires the Selector event loop;
 # uvicorn + the default Proactor loop on Windows causes
 # "attached to a different loop" RuntimeErrors.
 if sys.platform == "win32":
+    import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-from contextlib import asynccontextmanager
-
-import uvicorn
-from fastapi import FastAPI, HTTPException, Request, status
-from broker import Broker
-from models import AlertPayload
 
 
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # optional shared secret
 
+ib = IB()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ib.connectAsync(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID)
+    print(f"Connected to IBKR at {IBKR_HOST}:{IBKR_PORT}  (client {IBKR_CLIENT_ID})")
     yield
+    ib.disconnect()
+    print("Disconnected from IBKR.")
 
 
-app = FastAPI(title="TradingView → IBKR Bridge", lifespan=lifespan)
+app = FastAPI(title="TradingView -> IBKR Bridge", lifespan=lifespan)
 
 
 def _verify_signature(body: bytes, sig_header: str) -> bool:
@@ -50,7 +63,7 @@ def _verify_signature(body: bytes, sig_header: str) -> bool:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "ibkr_connected": ib.isConnected()}
 
 
 @app.post("/alert", status_code=status.HTTP_200_OK)
@@ -64,15 +77,15 @@ async def receive_alert(request: Request, payload: AlertPayload):
     print(f"\n[ALERT] {payload.action.upper()} {payload.quantity} {payload.symbol}"
           f"  strategy={payload.strategy}  comment={payload.comment}")
 
+    broker = Broker(ib)  # reuse the shared, already-connected IB instance
+
     if payload.action == "close":
-        async with Broker() as broker:
-            trade = await broker.close_position(payload.symbol)
+        await broker.close_position(payload.symbol)
     else:
-        async with Broker() as broker:
-            trade = await broker.place_order(payload)
+        await broker.place_order(payload)
 
     return {"status": "accepted", "symbol": payload.symbol, "action": payload.action}
 
 
 if __name__ == "__main__":
-    uvicorn.run("webhook_server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

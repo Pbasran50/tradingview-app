@@ -1,11 +1,17 @@
 """
 IBKR broker wrapper built on ib_insync.
 
-Usage:
+Standalone usage (each call owns its connection):
     from broker import Broker
     async with Broker() as b:
         trade = await b.place_order(alert)
         positions = await b.get_positions()
+
+Long-lived usage (e.g. inside a web server — connect once, reuse):
+    ib = IB()
+    await ib.connectAsync(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID)
+    broker = Broker(ib)              # wraps the existing connection
+    trade = await broker.place_order(alert)
 """
 
 import asyncio
@@ -22,15 +28,22 @@ IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", "1"))
 
 
 class Broker:
-    def __init__(self):
-        self.ib = IB()
+    def __init__(self, ib: Optional[IB] = None):
+        # If an already-connected IB instance is passed in, reuse it
+        # (required when running inside an event loop you don't own,
+        # e.g. a FastAPI/uvicorn request handler) instead of creating
+        # a second connection bound to a different loop.
+        self.ib = ib if ib is not None else IB()
+        self._owns_connection = ib is None
 
     async def __aenter__(self):
-        await self.connect()
+        if self._owns_connection:
+            await self.connect()
         return self
 
     async def __aexit__(self, *_):
-        self.disconnect()
+        if self._owns_connection:
+            self.disconnect()
 
     async def connect(self):
         await self.ib.connectAsync(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID)
