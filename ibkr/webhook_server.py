@@ -21,19 +21,22 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
+# ib_insync's socket connection code requires the Selector event loop;
+# uvicorn + the default Proactor loop on Windows causes
+# "attached to a different loop" RuntimeErrors. This MUST run before
+# ib_insync (or anything that touches asyncio) is imported — ib_insync
+# caches an event-loop reference at import time using whatever policy
+# is active then, and switching the policy afterward doesn't change it.
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, status
 from ib_insync import IB
 
 from broker import Broker, IBKR_HOST, IBKR_PORT, IBKR_CLIENT_ID
 from models import AlertPayload
-
-# ib_insync's socket connection code requires the Selector event loop;
-# uvicorn + the default Proactor loop on Windows causes
-# "attached to a different loop" RuntimeErrors.
-if sys.platform == "win32":
-    import asyncio
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # optional shared secret
