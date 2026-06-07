@@ -15,6 +15,7 @@ TradingView alert URL:
 Set a secret via WEBHOOK_SECRET env var to validate requests.
 """
 
+import asyncio
 import hmac
 import hashlib
 import os
@@ -28,7 +29,6 @@ from contextlib import asynccontextmanager
 # caches an event-loop reference at import time using whatever policy
 # is active then, and switching the policy afterward doesn't change it.
 if sys.platform == "win32":
-    import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import uvicorn
@@ -94,4 +94,16 @@ async def receive_alert(request: Request, payload: AlertPayload):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000)
+    server = uvicorn.Server(config)
+
+    if sys.platform == "win32":
+        # uvicorn.run() ignores asyncio.set_event_loop_policy() — it hardcodes
+        # ProactorEventLoop as its loop factory on Windows. Drive the server
+        # ourselves on an explicit SelectorEventLoop so ib_insync's sockets
+        # and uvicorn's tasks share the same (Selector-based) loop.
+        loop = asyncio.SelectorEventLoop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(server.serve())
+    else:
+        asyncio.run(server.serve())
