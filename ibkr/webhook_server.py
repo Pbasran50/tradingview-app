@@ -38,13 +38,16 @@ if sys.platform == "win32":
 
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")  # optional shared secret
 
-ib = IB()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Construct IB() here, not at module level — it must be created while
+    # uvicorn's event loop is running, or ib_insync binds it to the wrong
+    # loop and every call raises "attached to a different loop".
+    ib = IB()
     await ib.connectAsync(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID)
     print(f"Connected to IBKR at {IBKR_HOST}:{IBKR_PORT}  (client {IBKR_CLIENT_ID})")
+    app.state.ib = ib
     yield
     ib.disconnect()
     print("Disconnected from IBKR.")
@@ -62,8 +65,8 @@ def _verify_signature(body: bytes, sig_header: str) -> bool:
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok", "ibkr_connected": ib.isConnected()}
+async def health(request: Request):
+    return {"status": "ok", "ibkr_connected": request.app.state.ib.isConnected()}
 
 
 @app.post("/alert", status_code=status.HTTP_200_OK)
@@ -77,7 +80,7 @@ async def receive_alert(request: Request, payload: AlertPayload):
     print(f"\n[ALERT] {payload.action.upper()} {payload.quantity} {payload.symbol}"
           f"  strategy={payload.strategy}  comment={payload.comment}")
 
-    broker = Broker(ib)  # reuse the shared, already-connected IB instance
+    broker = Broker(request.app.state.ib)  # reuse the shared, already-connected IB instance
 
     if payload.action == "close":
         await broker.close_position(payload.symbol)
