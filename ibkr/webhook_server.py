@@ -14,6 +14,13 @@ import asyncio
 import hmac
 import hashlib
 import os
+import sys
+
+# ib_insync's socket connection code requires the Selector event loop;
+# uvicorn + the default Proactor loop on Windows causes
+# "attached to a different loop" RuntimeErrors.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from contextlib import asynccontextmanager
 
 import uvicorn
