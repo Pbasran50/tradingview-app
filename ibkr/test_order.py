@@ -35,7 +35,7 @@ async def main():
             if trade.orderStatus.status in ("Filled", "Cancelled", "Inactive"):
                 break
 
-    print("\nDone. Check TWS → Paper Account → Trades / Portfolio to confirm.")
+    print("\nDone. Check TWS -> Paper Account -> Trades / Portfolio to confirm.")
 
 
 if __name__ == "__main__":

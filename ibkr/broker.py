@@ -56,7 +56,7 @@ class Broker:
             order = MarketOrder(action, qty, outsideRth=alert.extended_hours)
 
         trade = self.ib.placeOrder(contract, order)
-        print(f"Order placed → {action} {qty} {alert.symbol}  [{alert.order_type}]  strategy={alert.strategy}")
+        print(f"Order placed -> {action} {qty} {alert.symbol}  [{alert.order_type}]  strategy={alert.strategy}")
         return trade
 
     async def close_position(self, symbol: str) -> Optional[Trade]:
@@ -67,7 +67,7 @@ class Broker:
                 qty = abs(int(pos.position))
                 order = MarketOrder(action, qty)
                 trade = self.ib.placeOrder(pos.contract, order)
-                print(f"Closing position → {action} {qty} {symbol}")
+                print(f"Closing position -> {action} {qty} {symbol}")
                 return trade
         print(f"No open position found for {symbol}")
         return None
