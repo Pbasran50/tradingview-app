@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ainote Real Data Assistant"
+  short_description: "Matches note, schedule, and task requests in Ainote and routes them to the corresponding real-data module."
+  default_prompt: "Use $ainote as the default unified entry for real data operations inside the Ainote / Read-Write Notes app. If the user is asking to view, create, update, move, complete, or delete notes, folders, schedules, reminders, todos, or tasks in the app, go through this skill first and let it route to the right submodule. If the request includes a concrete or parsable time expression plus an action or event, such as \"tomorrow\", \"tonight\", \"9am\", or \"next Monday\", prefer the schedule module instead of note unless the user explicitly asks to write a note, meeting minutes, summary, or record content."
