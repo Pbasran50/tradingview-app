@@ -10,6 +10,7 @@
     "insert-emas": "node scripts/insert-emas.mjs",
     "setup-flex": "node scripts/setup-flex.mjs",
     "screenshot": "node scripts/screenshot.mjs",
+    "levels": "node scripts/levels.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

@@ -3,17 +3,24 @@
  *
  * Auto-adds to chart:
  *   - Daily candlestick chart
- *   - EMA 8 (blue), 21 (orange), 50 (red), 200 (purple)
+ *   - EMA 8 (blue), 21 (orange), 50 (red), 200 (purple) — solid lines, fast trend
+ *   - SMA 50 (teal, dashed), SMA 200 (gold, dashed) — classic institutional
+ *     support/resistance levels used for IBD/Minervini-style buy points
  *   - MACD (12/26/9)
  *   - RSI (14)
- *   - Volume
+ *   - Volume (own pane, below price — not overlaid on candles)
  *   - Pivot Points Standard (support & resistance levels)
  *   - Candlestick Pattern recognition
+ *
+ * Every moving average is set to show its current value on the price scale
+ * (right edge of the chart), so you can read off exact levels at a glance
+ * for setting price alerts — no need to hover the chart.
  *
  * Prints to terminal:
  *   - Live price, open, high, low, change, today's range, 52-week high/low
  *   - Top 5 news headlines
  *   - Reminder to load Pine Script patterns (Cup & Handle etc.)
+ *   - Reminder to run `npm run levels` for a printable EMA/SMA price table
  *
  * Usage:
  *   npm run setup-flex
@@ -84,11 +91,21 @@ async function addStudy(label, name, inputs, overrides, overlay = false) {
 
 console.log('\nAdding indicators...');
 
-// ── EMAs (price pane overlay) ────────────────────────────────────────────────
-await addStudy('EMA 8   (blue)',   'Moving Average Exponential', { length: 8   }, { 'Plot.color': '#2196F3', 'Plot.linewidth': 2 }, true);
-await addStudy('EMA 21  (orange)', 'Moving Average Exponential', { length: 21  }, { 'Plot.color': '#FF9800', 'Plot.linewidth': 2 }, true);
-await addStudy('EMA 50  (red)',    'Moving Average Exponential', { length: 50  }, { 'Plot.color': '#F44336', 'Plot.linewidth': 3 }, true);
-await addStudy('EMA 200 (purple)', 'Moving Average Exponential', { length: 200 }, { 'Plot.color': '#9C27B0', 'Plot.linewidth': 3 }, true);
+// Every overlay MA gets a price-scale label so its current value is always
+// visible on the right edge of the chart — makes it easy to read exact
+// levels for setting alerts, without hovering the chart.
+const priceLabel = { 'Plot.showLabelsOnPriceScale': true };
+
+// ── EMAs — solid, fast trend (price pane overlay) ─────────────────────────────
+await addStudy('EMA 8   (blue)',   'Moving Average Exponential', { length: 8   }, { 'Plot.color': '#2196F3', 'Plot.linewidth': 2, ...priceLabel }, true);
+await addStudy('EMA 21  (orange)', 'Moving Average Exponential', { length: 21  }, { 'Plot.color': '#FF9800', 'Plot.linewidth': 2, ...priceLabel }, true);
+await addStudy('EMA 50  (red)',    'Moving Average Exponential', { length: 50  }, { 'Plot.color': '#F44336', 'Plot.linewidth': 3, ...priceLabel }, true);
+await addStudy('EMA 200 (purple)', 'Moving Average Exponential', { length: 200 }, { 'Plot.color': '#9C27B0', 'Plot.linewidth': 3, ...priceLabel }, true);
+
+// ── SMAs — dashed, classic institutional support/resistance levels ───────────
+// (linestyle 2 = dashed, distinguishes these from the solid EMAs above)
+await addStudy('SMA 50  (teal, dashed)', 'Moving Average', { length: 50  }, { 'Plot.color': '#00BCD4', 'Plot.linewidth': 2, 'Plot.linestyle': 2, ...priceLabel }, true);
+await addStudy('SMA 200 (gold, dashed)', 'Moving Average', { length: 200 }, { 'Plot.color': '#FFC107', 'Plot.linewidth': 2, 'Plot.linestyle': 2, ...priceLabel }, true);
 
 // ── Pivot Points — auto support & resistance levels ──────────────────────────
 await addStudy('Pivot Points (S&R)', 'Pivot Points Standard', {}, {}, true);
@@ -102,8 +119,8 @@ await addStudy('MACD (12/26/9)', 'MACD', { fast_length: 12, slow_length: 26, sig
 // ── RSI (separate pane) ──────────────────────────────────────────────────────
 await addStudy('RSI (14)', 'Relative Strength Index', { length: 14 }, {});
 
-// ── Volume (price pane overlay) ──────────────────────────────────────────────
-await addStudy('Volume', 'Volume', {}, {}, true);
+// ── Volume — own pane, not overlaid on candles (cleaner price action) ────────
+await addStudy('Volume', 'Volume', {}, {}, false);
 
 // ── 5. Fetch price data from Yahoo Finance (runs inside browser) ─────────────
 console.log('\nFetching price data...');
@@ -213,6 +230,10 @@ console.log(`
 
   How to load: TradingView → Pine Editor (bottom) → Open file
   → paste contents → Add to chart
+
+  For an exact price table of every EMA/SMA level (handy for setting
+  alerts), run:
+    npm run levels
 `);
 console.log('═'.repeat(54));
 console.log('\nChart setup complete.\n');
